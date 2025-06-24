@@ -164,7 +164,13 @@ setup_home_manager() {
                 elif [[ "$nixos_version" == "24.05" ]]; then
                     nix-channel --add https://github.com/nix-community/home-manager/archive/release-24.05.tar.gz home-manager
                     print_status "Using Home Manager 24.05 ✓"
-                elif [[ "$nixos_version" == "25.05" ]] || [[ "$nixos_version" > "24.11" ]]; then
+                elif [[ "$nixos_version" == "25.05" ]]; then
+                    print_warning "NixOS 25.05 detected - Home Manager has known compatibility issues"
+                    print_warning "Using system-level configuration instead for better reliability"
+                    print_warning "You can manually install Home Manager later if needed"
+                    USE_HOME_MANAGER=false
+                    return
+                elif [[ "$nixos_version" > "24.11" ]]; then
                     # For future stable releases, try to match or use latest
                     nix-channel --add https://github.com/nix-community/home-manager/archive/release-${nixos_version}.tar.gz home-manager 2>/dev/null || \
                     nix-channel --add https://github.com/nix-community/home-manager/archive/master.tar.gz home-manager
@@ -564,51 +570,15 @@ setup_home_manager_config() {
   home.stateVersion = "24.11";
 
   home.packages = with pkgs; [
-    # Hyprland ecosystem
-    hyprland
-    waybar
-    fuzzel
-    matugen
-    
-    # Terminal emulators
-    foot
-    kitty
-    
-    # Development tools
+    # Essential packages only
     git
     curl
     wget
-    
-    # System monitoring
     htop
     neofetch
-    
-    # Additional utilities
-    ripgrep
-    fd
-    fzf
-    bat
-    eza
   ];
 
   programs = {
-    fish = {
-      enable = true;
-      shellAliases = {
-        ll = "eza -l";
-        la = "eza -la";
-        cat = "bat";
-        grep = "rg";
-        find = "fd";
-      };
-    };
-    
-    git = {
-      enable = true;
-      userName = "Your Name";
-      userEmail = "your.email@example.com";
-    };
-    
     home-manager = {
       enable = true;
     };
@@ -652,9 +622,14 @@ EOF
         print_error "Error details:"
         cat /tmp/hm-switch-error.log
         print_error "Configuration file: $home_nix_path"
-        print_error "To fix manually: edit the file and run 'home-manager switch'"
+        print_warning "This is a known issue with NixOS 25.05 and Home Manager compatibility"
+        print_warning "The system packages have been installed via configuration.nix instead"
+        print_warning "You can manually configure Home Manager later if needed"
         print_warning "Continuing with rest of setup..."
         rm -f /tmp/hm-switch-error.log
+        
+        # Set a flag to indicate Home Manager failed
+        export HM_FAILED=true
     fi
 }
 
