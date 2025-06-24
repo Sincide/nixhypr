@@ -546,11 +546,15 @@ setup_home_manager_config() {
     # Check if home.nix already exists and back it up
     home_nix_path="/home/$USERNAME/.config/home-manager/home.nix"
     if [[ -f "$home_nix_path" ]]; then
-        print_warning "Existing home.nix found, creating backup..."
+        print_warning "Existing home.nix found, creating backup and replacing..."
         cp "$home_nix_path" "${home_nix_path}.backup.$(date +%Y%m%d_%H%M%S)"
+        print_status "Backup created: ${home_nix_path}.backup.*"
+        # Remove the problematic existing file
+        rm -f "$home_nix_path"
     fi
     
-    # Create home.nix configuration
+    # Create fresh home.nix configuration
+    print_status "Creating new home.nix configuration..."
     cat > "$home_nix_path" << 'EOF'
 { config, pkgs, ... }:
 
@@ -627,9 +631,12 @@ EOF
     
     # Validate the Nix syntax
     print_status "Validating Home Manager configuration syntax..."
-    if ! sudo -u "$USERNAME" nix-instantiate --parse "$home_nix_path" >/dev/null 2>&1; then
+    if ! sudo -u "$USERNAME" nix-instantiate --parse "$home_nix_path" 2>/tmp/nix-syntax-error.log; then
         print_error "Syntax error in generated home.nix!"
+        print_error "Error details:"
+        cat /tmp/nix-syntax-error.log
         print_error "Please check the file at: $home_nix_path"
+        rm -f /tmp/nix-syntax-error.log
         return 1
     fi
     
@@ -638,13 +645,16 @@ EOF
     
     # Apply Home Manager configuration
     print_status "Applying Home Manager configuration..."
-    if sudo -u "$USERNAME" home-manager switch; then
+    if sudo -u "$USERNAME" home-manager switch 2>/tmp/hm-switch-error.log; then
         print_status "Home Manager configuration applied successfully ✓"
     else
         print_error "Home Manager configuration failed!"
-        print_error "You can manually edit the configuration at: $home_nix_path"
-        print_error "Then run: home-manager switch"
+        print_error "Error details:"
+        cat /tmp/hm-switch-error.log
+        print_error "Configuration file: $home_nix_path"
+        print_error "To fix manually: edit the file and run 'home-manager switch'"
         print_warning "Continuing with rest of setup..."
+        rm -f /tmp/hm-switch-error.log
     fi
 }
 
