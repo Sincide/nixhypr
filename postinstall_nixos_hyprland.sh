@@ -444,6 +444,12 @@ EOF
     
     # Add packages directly to configuration.nix using a more reliable method
     if ! grep -q "programs.hyprland.enable" /etc/nixos/configuration.nix; then
+        # Create a temporary backup before modification
+        cp /etc/nixos/configuration.nix /etc/nixos/configuration.nix.pre-hyprland
+        
+        # Remove the closing brace temporarily
+        sed -i '$d' /etc/nixos/configuration.nix
+        
         # Add Hyprland and related configuration
         cat >> /etc/nixos/configuration.nix << EOF
 
@@ -494,7 +500,9 @@ EOF
   ];
   
   # User configuration
-  users.users.$USERNAME.shell = pkgs.fish;
+  users.users.${USERNAME}.shell = pkgs.fish;
+
+}
 EOF
     fi
     
