@@ -294,8 +294,9 @@ setup_config_files() {
     
     print_header "Config File Setup"
     
-    # Create .config directory if it doesn't exist
+    # Create .config directory if it doesn't exist and ensure proper ownership
     sudo -u "$USERNAME" mkdir -p "/home/$USERNAME/.config"
+    chown -R "$USERNAME:$(id -gn $USERNAME)" "/home/$USERNAME/.config"
     
     # List of common config directories to check
     config_dirs=("hyprland" "waybar" "fish" "fuzzel" "foot" "kitty" "scripts")
@@ -323,13 +324,20 @@ setup_config_files() {
             fi
             
             # Create symlink or copy files
-            read -p "Create symlink (recommended) or copy files for $dir? (symlink/copy): " link_method
-            if [[ "$link_method" == "copy" ]]; then
+            read -p "Create symlink (recommended) or copy files for $dir? (Y/n): " link_method
+            if [[ "$link_method" =~ ^[Nn]$ ]]; then
                 sudo -u "$USERNAME" cp -r "$DOTFILES_PATH/$dir" "$target_dir"
                 print_status "Copied $dir configuration ✓"
             else
-                sudo -u "$USERNAME" ln -sf "$DOTFILES_PATH/$dir" "$target_dir"
-                print_status "Created symlink for $dir configuration ✓"
+                # Create parent directory first and set proper permissions
+                sudo -u "$USERNAME" mkdir -p "$(dirname "$target_dir")"
+                if sudo -u "$USERNAME" ln -sf "$DOTFILES_PATH/$dir" "$target_dir"; then
+                    print_status "Created symlink for $dir configuration ✓"
+                else
+                    print_warning "Failed to create symlink, copying files instead..."
+                    sudo -u "$USERNAME" cp -r "$DOTFILES_PATH/$dir" "$target_dir"
+                    print_status "Copied $dir configuration ✓"
+                fi
             fi
         fi
     done
