@@ -213,7 +213,13 @@ get_dotfiles() {
     echo "  - Skip dotfiles setup"
     
     while true; do
-        read -p "Enter your dotfiles repository URL or path (or 'skip' to skip): " DOTFILES_REPO
+        read -p "Enter your dotfiles repository URL or path [https://gitlab.com/marerm/dotfiles] (or 'skip' to skip): " DOTFILES_REPO
+        
+        # Use default if empty
+        if [[ -z "$DOTFILES_REPO" ]]; then
+            DOTFILES_REPO="https://gitlab.com/marerm/dotfiles"
+            print_status "Using default repository: $DOTFILES_REPO"
+        fi
         
         if [[ "$DOTFILES_REPO" == "skip" ]]; then
             print_status "Skipping dotfiles setup"
@@ -471,67 +477,102 @@ EOF
     # Apply the configuration update
     print_status "Updating system configuration..."
     
-    # Check what's already configured and add only what's missing
+    # Use a much safer approach - create a new configuration and replace
     config_file="/etc/nixos/configuration.nix"
     
     # Create a temporary backup before modification
     cp "$config_file" "${config_file}.pre-hyprland"
     
-    # Check and add programs.hyprland.enable if not present
-    if ! grep -q "programs.hyprland.enable" "$config_file"; then
-        # Find a good place to insert (after imports or at the beginning of config)
-        if grep -q "imports = \[" "$config_file"; then
-            sed -i '/imports = \[/,/\];/a\\n  # Hyprland configuration\n  programs.hyprland.enable = true;' "$config_file"
-        else
-            sed -i '/^{/a\\n  # Hyprland configuration\n  programs.hyprland.enable = true;' "$config_file"
-        fi
-        print_status "Added Hyprland program configuration"
-    fi
+    # Create a safer update approach using a Python script
+    cat > /tmp/update_nix_config.py << 'EOF'
+#!/usr/bin/env python3
+import sys
+import re
+
+def update_nix_config(config_path, username):
+    with open(config_path, 'r') as f:
+        content = f.read()
     
-    # Check and add programs.fish.enable if not present
-    if ! grep -q "programs.fish.enable" "$config_file"; then
-        sed -i '/programs.hyprland.enable/a\  programs.fish.enable = true;' "$config_file"
-        print_status "Added Fish shell program configuration"
-    fi
+    # Check what needs to be added
+    additions = []
     
-    # Check and add hardware.opengl if not present
-    if ! grep -q "hardware.opengl" "$config_file"; then
-        sed -i '/programs.fish.enable/a\\n  # Hardware acceleration for Intel/AMD graphics\n  hardware.opengl = {\n    enable = true;\n    driSupport = true;\n    driSupport32Bit = true;\n  };' "$config_file"
-        print_status "Added hardware acceleration configuration"
-    fi
+    if 'programs.hyprland.enable' not in content:
+        additions.append('  programs.hyprland.enable = true;')
     
-    # Check and add services.ollama.enable if not present
-    if ! grep -q "services.ollama.enable" "$config_file"; then
-        sed -i '/hardware.opengl/,/};/a\\n  # AI services\n  services.ollama.enable = true;' "$config_file"
-        print_status "Added Ollama service configuration"
-    fi
+    if 'programs.fish.enable' not in content:
+        additions.append('  programs.fish.enable = true;')
     
-    # Handle environment.systemPackages more carefully
-    if grep -q "environment.systemPackages" "$config_file"; then
-        print_warning "environment.systemPackages already exists, adding packages to existing list"
+    if 'hardware.opengl' not in content:
+        additions.extend([
+            '  hardware.opengl = {',
+            '    enable = true;',
+            '    driSupport = true;',
+            '    driSupport32Bit = true;',
+            '  };'
+        ])
+    
+    if 'services.ollama.enable' not in content:
+        additions.append('  services.ollama.enable = true;')
+    
+    if f'users.users.{username}.shell' not in content:
+        additions.append(f'  users.users.{username}.shell = pkgs.fish;')
+    
+    # Handle systemPackages
+    hyprland_packages = [
+        'hyprland', 'waybar', 'fuzzel', 'matugen',
+        'foot', 'kitty', 'ollama', 'git', 'fish',
+        'curl', 'wget', 'htop', 'neofetch',
+        'wl-clipboard', 'grim', 'slurp'
+    ]
+    
+    if 'environment.systemPackages' in content:
+        # Add packages to existing list
+        for pkg in hyprland_packages:
+            if pkg not in content:
+                # Find the systemPackages section and add before the closing ];
+                pattern = r'(environment\.systemPackages\s*=\s*with\s+pkgs;\s*\[.*?)(.*?)(\s*\];)'
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    before, middle, after = match.groups()
+                    if pkg not in middle:
+                        content = content.replace(match.group(0), 
+                            f"{before}{middle}    {pkg} # Added by Hyprland script\n{after}")
+    else:
+        # Add new systemPackages section
+        pkg_section = [
+            '  environment.systemPackages = with pkgs; [',
+            '    # Added by Hyprland setup script'
+        ]
+        for pkg in hyprland_packages:
+            pkg_section.append(f'    {pkg}')
+        pkg_section.append('  ];')
+        additions.extend(pkg_section)
+    
+    # Find a good place to insert additions (before the closing brace)
+    if additions:
+        # Find the last closing brace
+        lines = content.split('\n')
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip() == '}':
+                # Insert before this closing brace
+                for addition in reversed(additions):
+                    lines.insert(i, addition)
+                break
         
-        # Find the existing systemPackages and add our packages
-        # Look for the pattern and add our packages before the closing ];
-        sed -i '/environment.systemPackages.*with pkgs;/,/\];/{
-            /\];/i\
-    # Added by Hyprland setup script\
-    hyprland waybar fuzzel matugen\
-    foot kitty ollama git fish\
-    curl wget htop neofetch\
-    wl-clipboard grim slurp
-        }' "$config_file"
-        print_status "Added Hyprland packages to existing systemPackages"
-    else
-        # Add new environment.systemPackages section
-        sed -i '/services.ollama.enable/a\\n  # Essential packages for Hyprland desktop\n  environment.systemPackages = with pkgs; [\n    # Hyprland ecosystem\n    hyprland waybar fuzzel matugen\n    # Terminal emulators\n    foot kitty\n    # AI/Development\n    ollama git fish\n    # System utilities\n    curl wget htop neofetch\n    # Wayland utilities\n    wl-clipboard grim slurp\n  ];' "$config_file"
-        print_status "Added new systemPackages configuration"
-    fi
+        content = '\n'.join(lines)
     
-    # Check and add user shell configuration if not present
-    if ! grep -q "users.users.${USERNAME}.shell" "$config_file"; then
-        sed -i '/environment.systemPackages/,/\];/a\\n  # User shell configuration\n  users.users.'"${USERNAME}"'.shell = pkgs.fish;' "$config_file"
-        print_status "Added user shell configuration"
-    fi
+    with open(config_path, 'w') as f:
+        f.write(content)
+    
+    print(f"Updated configuration with {len(additions)} additions")
+
+if __name__ == "__main__":
+    update_nix_config(sys.argv[1], sys.argv[2])
+EOF
+    
+    # Run the safer update
+    python3 /tmp/update_nix_config.py "$config_file" "$USERNAME"
+    print_status "Configuration updated using safe method"
     
     print_status "Configuration updated. Validating before rebuild..."
     
