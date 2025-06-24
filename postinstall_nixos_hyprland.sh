@@ -471,71 +471,83 @@ EOF
     # Apply the configuration update
     print_status "Updating system configuration..."
     
-    # Add packages directly to configuration.nix using a more reliable method
-    if ! grep -q "programs.hyprland.enable" /etc/nixos/configuration.nix; then
-        # Create a temporary backup before modification
-        cp /etc/nixos/configuration.nix /etc/nixos/configuration.nix.pre-hyprland
-        
-        # Remove the closing brace temporarily
-        sed -i '$d' /etc/nixos/configuration.nix
-        
-        # Add Hyprland and related configuration
-        cat >> /etc/nixos/configuration.nix << EOF
-
-  # Added by NixOS Hyprland setup script
-  # Wayland/Hyprland configuration optimized for Intel/AMD graphics
-  programs.hyprland.enable = true;
-  programs.fish.enable = true;
-  
-  # Enable hardware acceleration for Intel/AMD
-  hardware.opengl = {
-    enable = true;
-    driSupport = true;
-    driSupport32Bit = true;
-  };
-  
-  # Services
-  services.ollama.enable = true;
-  
-  # Essential packages for Hyprland desktop
-  environment.systemPackages = with pkgs; [
-    # Hyprland ecosystem
-    hyprland
-    waybar
-    fuzzel
-    matugen
+    # Check what's already configured and add only what's missing
+    config_file="/etc/nixos/configuration.nix"
     
-    # Terminal emulators
-    foot
-    kitty
+    # Create a temporary backup before modification
+    cp "$config_file" "${config_file}.pre-hyprland"
     
-    # AI/Development
-    ollama
-    git
-    
-    # Shell
-    fish
-    
-    # System utilities
-    curl
-    wget
-    htop
-    neofetch
-    
-    # Wayland utilities
-    wl-clipboard
-    grim
-    slurp
-  ];
-  
-  # User configuration
-  users.users.${USERNAME}.shell = pkgs.fish;
-
-}
-EOF
+    # Check and add programs.hyprland.enable if not present
+    if ! grep -q "programs.hyprland.enable" "$config_file"; then
+        # Find a good place to insert (after imports or at the beginning of config)
+        if grep -q "imports = \[" "$config_file"; then
+            sed -i '/imports = \[/,/\];/a\\n  # Hyprland configuration\n  programs.hyprland.enable = true;' "$config_file"
+        else
+            sed -i '/^{/a\\n  # Hyprland configuration\n  programs.hyprland.enable = true;' "$config_file"
+        fi
+        print_status "Added Hyprland program configuration"
     fi
     
-    print_status "Configuration updated. Rebuilding system..."
+    # Check and add programs.fish.enable if not present
+    if ! grep -q "programs.fish.enable" "$config_file"; then
+        sed -i '/programs.hyprland.enable/a\  programs.fish.enable = true;' "$config_file"
+        print_status "Added Fish shell program configuration"
+    fi
+    
+    # Check and add hardware.opengl if not present
+    if ! grep -q "hardware.opengl" "$config_file"; then
+        sed -i '/programs.fish.enable/a\\n  # Hardware acceleration for Intel/AMD graphics\n  hardware.opengl = {\n    enable = true;\n    driSupport = true;\n    driSupport32Bit = true;\n  };' "$config_file"
+        print_status "Added hardware acceleration configuration"
+    fi
+    
+    # Check and add services.ollama.enable if not present
+    if ! grep -q "services.ollama.enable" "$config_file"; then
+        sed -i '/hardware.opengl/,/};/a\\n  # AI services\n  services.ollama.enable = true;' "$config_file"
+        print_status "Added Ollama service configuration"
+    fi
+    
+    # Handle environment.systemPackages more carefully
+    if grep -q "environment.systemPackages" "$config_file"; then
+        print_warning "environment.systemPackages already exists, adding packages to existing list"
+        
+        # Find the existing systemPackages and add our packages
+        # Look for the pattern and add our packages before the closing ];
+        sed -i '/environment.systemPackages.*with pkgs;/,/\];/{
+            /\];/i\
+    # Added by Hyprland setup script\
+    hyprland waybar fuzzel matugen\
+    foot kitty ollama git fish\
+    curl wget htop neofetch\
+    wl-clipboard grim slurp
+        }' "$config_file"
+        print_status "Added Hyprland packages to existing systemPackages"
+    else
+        # Add new environment.systemPackages section
+        sed -i '/services.ollama.enable/a\\n  # Essential packages for Hyprland desktop\n  environment.systemPackages = with pkgs; [\n    # Hyprland ecosystem\n    hyprland waybar fuzzel matugen\n    # Terminal emulators\n    foot kitty\n    # AI/Development\n    ollama git fish\n    # System utilities\n    curl wget htop neofetch\n    # Wayland utilities\n    wl-clipboard grim slurp\n  ];' "$config_file"
+        print_status "Added new systemPackages configuration"
+    fi
+    
+    # Check and add user shell configuration if not present
+    if ! grep -q "users.users.${USERNAME}.shell" "$config_file"; then
+        sed -i '/environment.systemPackages/,/\];/a\\n  # User shell configuration\n  users.users.'"${USERNAME}"'.shell = pkgs.fish;' "$config_file"
+        print_status "Added user shell configuration"
+    fi
+    
+    print_status "Configuration updated. Validating before rebuild..."
+    
+    # Validate the configuration syntax before rebuilding
+    if ! nixos-rebuild dry-build >/dev/null 2>/tmp/nixos-syntax-error.log; then
+        print_error "Configuration syntax error detected!"
+        print_error "Error details:"
+        cat /tmp/nixos-syntax-error.log
+        print_error "Restoring backup configuration..."
+        cp "${config_file}.pre-hyprland" "$config_file"
+        print_warning "Backup restored. Please check your configuration manually."
+        rm -f /tmp/nixos-syntax-error.log
+        return 1
+    fi
+    
+    print_status "Configuration validated successfully. Rebuilding system..."
     
     # Attempt rebuild with error handling
     if ! nixos-rebuild switch; then
