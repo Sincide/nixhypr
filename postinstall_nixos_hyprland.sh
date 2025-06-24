@@ -76,10 +76,18 @@ check_nixos() {
     fi
     
     # Check for internet connectivity
-    if ! ping -c 1 nixos.org &>/dev/null; then
-        print_error "No internet connectivity detected"
-        print_error "This script requires internet access for package downloads"
-        exit 1
+    print_status "Testing internet connectivity..."
+    if ! ping -c 1 -W 5 8.8.8.8 >/dev/null 2>&1; then
+        print_warning "Cannot reach Google DNS (8.8.8.8), trying alternative..."
+        if ! ping -c 1 -W 5 1.1.1.1 >/dev/null 2>&1; then
+            print_warning "Cannot reach Cloudflare DNS (1.1.1.1), trying nixos.org..."
+            if ! ping -c 1 -W 5 nixos.org >/dev/null 2>&1; then
+                print_error "No internet connectivity detected"
+                print_error "This script requires internet access for package downloads"
+                print_error "Please check your network connection and try again"
+                exit 1
+            fi
+        fi
     fi
     
     print_status "NixOS detected ✓"
