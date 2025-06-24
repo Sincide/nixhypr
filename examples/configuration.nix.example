@@ -1,0 +1,131 @@
+# Example NixOS configuration.nix after running the Hyprland setup script
+# This shows what your configuration might look like after the script completes
+
+{ config, pkgs, ... }:
+
+{
+  imports = [
+    # Include the results of the hardware scan.
+    ./hardware-configuration.nix
+  ];
+
+  # Bootloader configuration
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  # Network configuration
+  networking.hostName = "nixos-hyprland";
+  networking.networkmanager.enable = true;
+
+  # Time zone and localization
+  time.timeZone = "America/New_York";
+  i18n.defaultLocale = "en_US.UTF-8";
+  i18n.extraLocaleSettings = {
+    LC_ADDRESS = "en_US.UTF-8";
+    LC_IDENTIFICATION = "en_US.UTF-8";
+    LC_MEASUREMENT = "en_US.UTF-8";
+    LC_MONETARY = "en_US.UTF-8";
+    LC_NAME = "en_US.UTF-8";
+    LC_NUMERIC = "en_US.UTF-8";
+    LC_PAPER = "en_US.UTF-8";
+    LC_TELEPHONE = "en_US.UTF-8";
+    LC_TIME = "en_US.UTF-8";
+  };
+
+  # User account
+  users.users.martin = {
+    isNormalUser = true;
+    description = "Martin";
+    extraGroups = [ "networkmanager" "wheel" ];
+    shell = pkgs.fish;  # Set by the script
+  };
+
+  # Allow unfree packages
+  nixpkgs.config.allowUnfree = true;
+
+  # Added by NixOS Hyprland setup script
+  # Wayland/Hyprland configuration optimized for Intel/AMD graphics
+  programs.hyprland.enable = true;
+  programs.fish.enable = true;
+
+  # Enable hardware acceleration for Intel/AMD
+  hardware.opengl = {
+    enable = true;
+    driSupport = true;
+    driSupport32Bit = true;
+  };
+
+  # Services
+  services.ollama.enable = true;
+
+  # Essential packages for Hyprland desktop
+  environment.systemPackages = with pkgs; [
+    # Hyprland ecosystem
+    hyprland
+    waybar
+    fuzzel
+    matugen
+    
+    # Terminal emulators
+    foot
+    kitty
+    
+    # AI/Development
+    ollama
+    git
+    
+    # Shell
+    fish
+    
+    # System utilities
+    curl
+    wget
+    htop
+    neofetch
+    
+    # Wayland utilities
+    wl-clipboard
+    grim
+    slurp
+    
+    # Additional useful packages
+    firefox
+    vim
+    nano
+    tree
+    unzip
+    zip
+  ];
+
+  # Audio support
+  sound.enable = true;
+  hardware.pulseaudio.enable = false;
+  security.rtkit.enable = true;
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
+  };
+
+  # Enable the X11 windowing system (needed for some compatibility)
+  services.xserver.enable = true;
+
+  # Configure keymap in X11
+  services.xserver.xkb = {
+    layout = "us";
+    variant = "";
+  };
+
+  # Enable CUPS to print documents
+  services.printing.enable = true;
+
+  # Enable touchpad support (if applicable)
+  services.xserver.libinput.enable = true;
+
+  # This value determines the NixOS release from which the default
+  # settings for stateful data, like file locations and database versions
+  # on your system were taken. It's perfectly fine and recommended to leave
+  # this value at the release version of the first install of this system.
+  system.stateVersion = "24.11"; # Did you read the comment?
+} 
