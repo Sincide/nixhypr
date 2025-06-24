@@ -232,11 +232,26 @@ get_dotfiles() {
             break
         fi
         
-        # Check if it's a valid Git URL
-        if [[ "$DOTFILES_REPO" =~ ^https?://.*\.git$ ]] || [[ "$DOTFILES_REPO" =~ ^git@.*\.git$ ]]; then
-            DOTFILES_PATH="/home/$USERNAME/dotfiles"
-            print_status "Will clone dotfiles to: $DOTFILES_PATH"
-            break
+        # Check if it's a valid Git URL (supports GitHub, GitLab, etc.)
+        if [[ "$DOTFILES_REPO" =~ ^https?://.*$ ]] || [[ "$DOTFILES_REPO" =~ ^git@.*$ ]]; then
+            # Test if it's actually a valid Git repository
+            print_status "Testing Git repository access..."
+            if timeout 10 git ls-remote "$DOTFILES_REPO" >/dev/null 2>&1; then
+                DOTFILES_PATH="/home/$USERNAME/dotfiles"
+                print_status "Will clone dotfiles to: $DOTFILES_PATH"
+                break
+            else
+                print_warning "Cannot access Git repository at this time."
+                read -p "Do you want to try anyway? (y/N): " try_anyway
+                if [[ "$try_anyway" =~ ^[Yy]$ ]]; then
+                    DOTFILES_PATH="/home/$USERNAME/dotfiles"
+                    print_status "Will attempt to clone dotfiles to: $DOTFILES_PATH"
+                    break
+                else
+                    print_warning "Please check the URL and your internet connection."
+                    continue
+                fi
+            fi
         fi
         
         print_warning "Invalid input. Please provide a valid Git URL or local path."
@@ -252,7 +267,7 @@ clone_dotfiles() {
     print_status "Setting up dotfiles..."
     
     # If it's a Git URL, clone it
-    if [[ "$DOTFILES_REPO" =~ ^https?://.*\.git$ ]] || [[ "$DOTFILES_REPO" =~ ^git@.*\.git$ ]]; then
+    if [[ "$DOTFILES_REPO" =~ ^https?://.*$ ]] || [[ "$DOTFILES_REPO" =~ ^git@.*$ ]]; then
         if [[ -d "$DOTFILES_PATH" ]]; then
             print_warning "Directory $DOTFILES_PATH already exists"
             read -p "Do you want to remove it and clone fresh? (y/N): " remove_existing
