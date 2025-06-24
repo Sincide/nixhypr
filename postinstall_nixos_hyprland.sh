@@ -543,8 +543,15 @@ setup_home_manager_config() {
     # Create home-manager configuration directory
     sudo -u "$USERNAME" mkdir -p "/home/$USERNAME/.config/home-manager"
     
+    # Check if home.nix already exists and back it up
+    home_nix_path="/home/$USERNAME/.config/home-manager/home.nix"
+    if [[ -f "$home_nix_path" ]]; then
+        print_warning "Existing home.nix found, creating backup..."
+        cp "$home_nix_path" "${home_nix_path}.backup.$(date +%Y%m%d_%H%M%S)"
+    fi
+    
     # Create home.nix configuration
-    cat > "/home/$USERNAME/.config/home-manager/home.nix" << 'EOF'
+    cat > "$home_nix_path" << 'EOF'
 { config, pkgs, ... }:
 
 {
@@ -615,17 +622,30 @@ setup_home_manager_config() {
 EOF
     
     # Replace placeholders with actual username
-    sed -i "s/USERNAME_PLACEHOLDER/$USERNAME/g" "/home/$USERNAME/.config/home-manager/home.nix"
-    chown "$USERNAME:$(id -gn $USERNAME)" "/home/$USERNAME/.config/home-manager/home.nix"
+    sed -i "s/USERNAME_PLACEHOLDER/$USERNAME/g" "$home_nix_path"
+    chown "$USERNAME:$(id -gn $USERNAME)" "$home_nix_path"
     
-    print_status "Home Manager configuration created at /home/$USERNAME/.config/home-manager/home.nix"
+    # Validate the Nix syntax
+    print_status "Validating Home Manager configuration syntax..."
+    if ! sudo -u "$USERNAME" nix-instantiate --parse "$home_nix_path" >/dev/null 2>&1; then
+        print_error "Syntax error in generated home.nix!"
+        print_error "Please check the file at: $home_nix_path"
+        return 1
+    fi
+    
+    print_status "Home Manager configuration created at $home_nix_path"
     print_warning "Please edit the git configuration in the home.nix file with your details"
     
     # Apply Home Manager configuration
     print_status "Applying Home Manager configuration..."
-    sudo -u "$USERNAME" home-manager switch
-    
-    print_status "Home Manager configuration applied successfully ✓"
+    if sudo -u "$USERNAME" home-manager switch; then
+        print_status "Home Manager configuration applied successfully ✓"
+    else
+        print_error "Home Manager configuration failed!"
+        print_error "You can manually edit the configuration at: $home_nix_path"
+        print_error "Then run: home-manager switch"
+        print_warning "Continuing with rest of setup..."
+    fi
 }
 
 # Function to setup Ollama
